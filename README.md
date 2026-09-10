@@ -1,2 +1,2 @@
-# Itiner-rio_de_transporte_p-blico
+# Itinerário_de_transporte_público
 Projeto de Inteligência artificial

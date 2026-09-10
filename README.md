@@ -12,9 +12,9 @@
 
 | Integrante | Responsabilidade no Código / Módulos |
 | :--- | :--- |
-| **[Nome 1]** | Modelagem do estado `(estação, linha)`, Função Sucessora e Heurística |
-| **[Nome 2]** | Busca em Largura (BFS) e Estruturas da Fronteira (deque) |
-| **[Nome 3]** | Busca A*, Instrumentação (Métricas) e Script de Experimentos |
+| **[Samuel Henrique]** | Modelagem do estado `(estação, linha)`, Função Sucessora e Heurística |
+| **[Marcelo Vaz]** | Busca em Largura (BFS) e Estruturas da Fronteira (deque) |
+| **[Samuel/Marcelo]** | Busca A*, Instrumentação (Métricas) e Script de Experimentos |
 
 ---
 

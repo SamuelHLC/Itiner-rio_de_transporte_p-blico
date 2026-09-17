@@ -14,7 +14,7 @@
 | :--- | :--- |
 | **[Samuel Henrique]** | Modelagem do estado `(estação, linha)`, Função Sucessora e Heurística |
 | **[Marcelo Vaz]** | Busca em Largura (BFS) e Estruturas da Fronteira (deque) |
-| **[Samuel/Marcelo]** | Busca A*, Instrumentação (Métricas) e Script de Experimentos |
+| **[Gabriel Yan]** | Busca A*, Instrumentação (Métricas) e Script de Experimentos |
 
 ---
 

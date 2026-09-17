@@ -2,6 +2,7 @@
 import time
 import heapq
 from collections import deque
+from modelo import calcular_heuristica, gerar_sucessores
 
 def busca_em_largura(estado_inicial, destino, grafo):
     # Explora o grafo nivel por nivel usando uma fila (deque) para encontrar o caminho com menos arestas.
@@ -25,6 +26,31 @@ def busca_em_largura(estado_inicial, destino, grafo):
                 nos_gerados += 1
                 fronteira.append((vizinho, caminho + [vizinho], custo_acumulado + custo_mov))
                 
+    return None
+
+def busca_em_profundidade(estado_inicial, destino, grafo):
+    # Explora um ramo até o limite usando uma pilha (LIFO), evitando revisitar estados.
+    tempo_inicio = time.time()
+    fronteira = [(estado_inicial, [estado_inicial], 0)]
+    visitados = {estado_inicial}
+    nos_gerados = 1
+    nos_expandidos = 0
+
+    while fronteira:
+        estado_atual, caminho, custo_acumulado = fronteira.pop()
+        estacao_atual, _ = estado_atual
+        nos_expandidos += 1
+
+        if estacao_atual == destino:
+            return formatar_saida(caminho, custo_acumulado, nos_gerados, nos_expandidos, tempo_inicio)
+
+        sucessores = gerar_sucessores(estado_atual, grafo["conexoes"], grafo["custo_baldeacao"])
+        for vizinho, custo_mov in reversed(sucessores):
+            if vizinho not in visitados:
+                visitados.add(vizinho)
+                nos_gerados += 1
+                fronteira.append((vizinho, caminho + [vizinho], custo_acumulado + custo_mov))
+
     return None
 
 def busca_a_estrela(estado_inicial, destino, grafo):

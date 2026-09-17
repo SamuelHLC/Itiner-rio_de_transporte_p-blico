@@ -1,6 +1,10 @@
 #main.py
+from buscas import busca_a_estrela, busca_em_largura, busca_em_profundidade
+from dados import carregar_instancias
+
+
 def executar_experimentos():
-    # Executa as duas estratégias de busca em todas as instâncias e imprime a instrumentação no terminal.
+    # Executa as estratégias de busca em todas as instâncias e imprime a instrumentação no terminal.
     instancias = carregar_instancias()
     
     for nome, grafo in instancias.items():
@@ -12,6 +16,10 @@ def executar_experimentos():
         print("--- Busca em Largura (BFS) ---")
         resultado_bfs = busca_em_largura(estado_inicial, destino, grafo)
         imprimir_resultado(resultado_bfs)
+
+        print("\n--- Busca em Profundidade (DFS) ---")
+        resultado_dfs = busca_em_profundidade(estado_inicial, destino, grafo)
+        imprimir_resultado(resultado_dfs)
         
         print("\n--- Busca A* ---")
         resultado_a_estrela = busca_a_estrela(estado_inicial, destino, grafo)

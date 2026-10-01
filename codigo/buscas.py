@@ -1,99 +1,319 @@
-#buscas.py
-import time
+# buscas.py
 import heapq
+import time
 from collections import deque
-from modelo import calcular_heuristica, gerar_sucessores
 
-def busca_em_largura(estado_inicial, destino, grafo):
-    # Explora o grafo nivel por nivel usando uma fila (deque) para encontrar o caminho com menos arestas.
-    tempo_inicio = time.time()
+from modelo import (
+    analisar_caminho,
+    calcular_heuristica,
+    gerar_sucessores,
+    validar_criterio,
+    validar_problema,
+)
+
+
+def formatar_saida(
+    caminho,
+    custo,
+    gerados,
+    expandidos,
+    tempo_inicio,
+    grafo,
+    criterio,
+    status="solucao",
+):
+    """Empacota caminho, status, métricas e critérios em um resultado uniforme."""
+    metricas_caminho = analisar_caminho(caminho, grafo)
+    return {
+        "status": status,
+        "criterio": criterio,
+        "caminho": caminho,
+        "custo_solucao": custo,
+        "passos": None if caminho is None else len(caminho) - 1,
+        "tempo_viagem": metricas_caminho["tempo_viagem"],
+        "baldeacoes": metricas_caminho["baldeacoes"],
+        "custo_com_baldeacao": metricas_caminho["custo_com_baldeacao"],
+        "nos_gerados": gerados,
+        "nos_expandidos": expandidos,
+        "tempo_execucao": time.perf_counter() - tempo_inicio,
+    }
+
+
+def _preparar_busca(estado_inicial, destino, grafo, criterio):
+    """Valida entradas comuns e devolve o critério normalizado."""
+    validar_criterio(criterio)
+    validar_problema(estado_inicial, destino, grafo)
+
+
+def busca_em_largura(
+    estado_inicial,
+    destino,
+    grafo,
+    criterio="tempo_com_baldeacao",
+    limite_expansoes=None,
+):
+    """Explora níveis com FIFO e encontra o caminho com menos transições."""
+    _preparar_busca(estado_inicial, destino, grafo, criterio)
+    tempo_inicio = time.perf_counter()
     fronteira = deque([(estado_inicial, [estado_inicial], 0)])
-    visitados = set([estado_inicial])
+    descobertos = {estado_inicial}
     nos_gerados = 1
     nos_expandidos = 0
-    
+
     while fronteira:
         estado_atual, caminho, custo_acumulado = fronteira.popleft()
-        estacao_atual, _ = estado_atual
         nos_expandidos += 1
-        
-        if estacao_atual == destino:
-            return formatar_saida(caminho, custo_acumulado, nos_gerados, nos_expandidos, tempo_inicio)
-            
-        for vizinho, custo_mov in gerar_sucessores(estado_atual, grafo["conexoes"], grafo["custo_baldeacao"]):
-            if vizinho not in visitados:
-                visitados.add(vizinho)
-                nos_gerados += 1
-                fronteira.append((vizinho, caminho + [vizinho], custo_acumulado + custo_mov))
-                
-    return None
 
-def busca_em_profundidade(estado_inicial, destino, grafo):
-    # Explora um ramo até o limite usando uma pilha (LIFO), evitando revisitar estados.
-    tempo_inicio = time.time()
+        if estado_atual[0] == destino:
+            return formatar_saida(
+                caminho,
+                custo_acumulado,
+                nos_gerados,
+                nos_expandidos,
+                tempo_inicio,
+                grafo,
+                criterio,
+            )
+
+        if limite_expansoes is not None and nos_expandidos >= limite_expansoes:
+            return formatar_saida(
+                None,
+                None,
+                nos_gerados,
+                nos_expandidos,
+                tempo_inicio,
+                grafo,
+                criterio,
+                status="limite_expansoes",
+            )
+
+        for vizinho, custo_movimento in gerar_sucessores(
+            estado_atual,
+            grafo["conexoes"],
+            grafo["custo_baldeacao"],
+            criterio,
+        ):
+            if vizinho not in descobertos:
+                descobertos.add(vizinho)
+                nos_gerados += 1
+                fronteira.append(
+                    (
+                        vizinho,
+                        caminho + [vizinho],
+                        custo_acumulado + custo_movimento,
+                    )
+                )
+
+    return formatar_saida(
+        None,
+        None,
+        nos_gerados,
+        nos_expandidos,
+        tempo_inicio,
+        grafo,
+        criterio,
+        status="sem_solucao",
+    )
+
+
+def busca_em_profundidade(
+    estado_inicial,
+    destino,
+    grafo,
+    criterio="tempo_com_baldeacao",
+    limite_expansoes=None,
+):
+    """Explora um ramo com LIFO e evita revisitar estados descobertos."""
+    _preparar_busca(estado_inicial, destino, grafo, criterio)
+    tempo_inicio = time.perf_counter()
     fronteira = [(estado_inicial, [estado_inicial], 0)]
-    visitados = {estado_inicial}
+    descobertos = {estado_inicial}
     nos_gerados = 1
     nos_expandidos = 0
 
     while fronteira:
         estado_atual, caminho, custo_acumulado = fronteira.pop()
-        estacao_atual, _ = estado_atual
         nos_expandidos += 1
 
-        if estacao_atual == destino:
-            return formatar_saida(caminho, custo_acumulado, nos_gerados, nos_expandidos, tempo_inicio)
+        if estado_atual[0] == destino:
+            return formatar_saida(
+                caminho,
+                custo_acumulado,
+                nos_gerados,
+                nos_expandidos,
+                tempo_inicio,
+                grafo,
+                criterio,
+            )
 
-        sucessores = gerar_sucessores(estado_atual, grafo["conexoes"], grafo["custo_baldeacao"])
-        for vizinho, custo_mov in reversed(sucessores):
-            if vizinho not in visitados:
-                visitados.add(vizinho)
+        if limite_expansoes is not None and nos_expandidos >= limite_expansoes:
+            return formatar_saida(
+                None,
+                None,
+                nos_gerados,
+                nos_expandidos,
+                tempo_inicio,
+                grafo,
+                criterio,
+                status="limite_expansoes",
+            )
+
+        sucessores = gerar_sucessores(
+            estado_atual,
+            grafo["conexoes"],
+            grafo["custo_baldeacao"],
+            criterio,
+        )
+        for vizinho, custo_movimento in reversed(sucessores):
+            if vizinho not in descobertos:
+                descobertos.add(vizinho)
                 nos_gerados += 1
-                fronteira.append((vizinho, caminho + [vizinho], custo_acumulado + custo_mov))
+                fronteira.append(
+                    (
+                        vizinho,
+                        caminho + [vizinho],
+                        custo_acumulado + custo_movimento,
+                    )
+                )
 
-    return None
+    return formatar_saida(
+        None,
+        None,
+        nos_gerados,
+        nos_expandidos,
+        tempo_inicio,
+        grafo,
+        criterio,
+        status="sem_solucao",
+    )
 
-def busca_a_estrela(estado_inicial, destino, grafo):
-    # Encontra o caminho de menor custo total usando uma fila de prioridade guiada pela função f(n) = g(n) + h(n).
-    tempo_inicio = time.time()
-    contador = 0 
+
+def _heuristica_para_criterio(estado, destino, grafo, criterio):
+    """Escolhe uma heurística admissível para cada objetivo de otimização."""
+    if criterio == "baldeacoes":
+        return 0
+    return calcular_heuristica(
+        estado[0], destino, grafo["coordenadas"], grafo["vel_max"]
+    )
+
+
+def busca_a_estrela(
+    estado_inicial,
+    destino,
+    grafo,
+    criterio="tempo_com_baldeacao",
+    limite_expansoes=None,
+):
+    """Ordena a fronteira por f(n)=g(n)+h(n) para o critério escolhido."""
+    _preparar_busca(estado_inicial, destino, grafo, criterio)
+    tempo_inicio = time.perf_counter()
+    contador = 0
     fronteira = []
-    heapq.heappush(fronteira, (0, 0, contador, estado_inicial, [estado_inicial]))
-    visitados = {}
+    custo_inicial = 0
+    heuristica_inicial = _heuristica_para_criterio(
+        estado_inicial, destino, grafo, criterio
+    )
+    heapq.heappush(
+        fronteira,
+        (
+            custo_inicial + heuristica_inicial,
+            custo_inicial,
+            contador,
+            estado_inicial,
+            [estado_inicial],
+        ),
+    )
+    melhor_custo = {estado_inicial: custo_inicial}
     nos_gerados = 1
     nos_expandidos = 0
-    
+
     while fronteira:
         _, custo_g, _, estado_atual, caminho = heapq.heappop(fronteira)
-        estacao_atual, _ = estado_atual
-        
-        if estado_atual in visitados and visitados[estado_atual] <= custo_g:
+        if custo_g != melhor_custo.get(estado_atual):
             continue
-            
-        visitados[estado_atual] = custo_g
-        nos_expandidos += 1
-        
-        if estacao_atual == destino:
-            return formatar_saida(caminho, custo_g, nos_gerados, nos_expandidos, tempo_inicio)
-            
-        for vizinho, custo_mov in gerar_sucessores(estado_atual, grafo["conexoes"], grafo["custo_baldeacao"]):
-            novo_custo_g = custo_g + custo_mov
-            if vizinho not in visitados or novo_custo_g < visitados[vizinho]:
-                nos_gerados += 1
-                contador += 1
-                heuristica = calcular_heuristica(vizinho[0], destino, grafo["coordenadas"], grafo["vel_max"])
-                custo_f = novo_custo_g + heuristica
-                heapq.heappush(fronteira, (custo_f, novo_custo_g, contador, vizinho, caminho + [vizinho]))
-                
-    return None
 
-def formatar_saida(caminho, custo, gerados, expandidos, tempo_inicio):
-    # Empacota os contadores obrigatórios da instrumentação em um dicionário para leitura simplificada.
-    return {
-        "caminho": caminho,
-        "custo_solucao": custo,
-        "passos": len(caminho) - 1,
-        "nos_gerados": gerados,
-        "nos_expandidos": expandidos,
-        "tempo_execucao": time.time() - tempo_inicio
-    }
+        nos_expandidos += 1
+        if estado_atual[0] == destino:
+            return formatar_saida(
+                caminho,
+                custo_g,
+                nos_gerados,
+                nos_expandidos,
+                tempo_inicio,
+                grafo,
+                criterio,
+            )
+
+        if limite_expansoes is not None and nos_expandidos >= limite_expansoes:
+            return formatar_saida(
+                None,
+                None,
+                nos_gerados,
+                nos_expandidos,
+                tempo_inicio,
+                grafo,
+                criterio,
+                status="limite_expansoes",
+            )
+
+        for vizinho, custo_movimento in gerar_sucessores(
+            estado_atual,
+            grafo["conexoes"],
+            grafo["custo_baldeacao"],
+            criterio,
+        ):
+            novo_custo_g = custo_g + custo_movimento
+            if novo_custo_g >= melhor_custo.get(vizinho, float("inf")):
+                continue
+
+            melhor_custo[vizinho] = novo_custo_g
+            contador += 1
+            heuristica = _heuristica_para_criterio(
+                vizinho, destino, grafo, criterio
+            )
+            heapq.heappush(
+                fronteira,
+                (
+                    novo_custo_g + heuristica,
+                    novo_custo_g,
+                    contador,
+                    vizinho,
+                    caminho + [vizinho],
+                ),
+            )
+            nos_gerados += 1
+
+    return formatar_saida(
+        None,
+        None,
+        nos_gerados,
+        nos_expandidos,
+        tempo_inicio,
+        grafo,
+        criterio,
+        status="sem_solucao",
+    )
+
+
+def busca_menor_tempo(estado_inicial, destino, grafo, limite_expansoes=None):
+    """Busca o itinerário com menor tempo de viagem, sem penalidade artificial."""
+    return busca_a_estrela(
+        estado_inicial,
+        destino,
+        grafo,
+        criterio="tempo",
+        limite_expansoes=limite_expansoes,
+    )
+
+
+def busca_menor_numero_baldeacoes(
+    estado_inicial, destino, grafo, limite_expansoes=None
+):
+    """Busca o itinerário com menor número de baldeações."""
+    return busca_a_estrela(
+        estado_inicial,
+        destino,
+        grafo,
+        criterio="baldeacoes",
+        limite_expansoes=limite_expansoes,
+    )

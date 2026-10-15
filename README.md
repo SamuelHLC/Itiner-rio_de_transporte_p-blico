@@ -1,6 +1,6 @@
 # Projeto N1: Itinerário de Transporte Público
 
-**Curso:** Sistemas de Informação — 8º semestre
+**Curso:** Sistemas de Informação — 5º e 6º semestre
 **Disciplina:** Inteligência Artificial
 **Tema:** 6 — Itinerário de transporte público
 

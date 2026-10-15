@@ -1,0 +1,371 @@
+# painel.py
+"""Painel visual para apresentar as buscas em sala.
+
+Uso (na raiz do projeto):  python codigo/painel.py
+Usa apenas a biblioteca padrao (tkinter) e os arquivos do proprio projeto:
+dados.py, buscas.py e modelo.py. Nao altera nenhum deles.
+"""
+import os
+import sys
+import tkinter as tk
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from buscas import (  # noqa: E402
+    busca_a_estrela,
+    busca_em_largura,
+    busca_em_profundidade,
+    busca_menor_numero_baldeacoes,
+    busca_menor_tempo,
+)
+from dados import carregar_instancias  # noqa: E402
+
+BG = "#0E1A2B"
+CARD = "#16263C"
+LINE = "#274058"
+TXT = "#F1F5F4"
+MUTED = "#8FA3B5"
+TEAL = "#4FD6C8"
+AMBER = "#F2B866"
+LINHAS = {"Linha 1": "#2FBFB0", "Linha 2": "#E39A3B"}
+EXTRA = ["#6F8FE6", "#C77DDB", "#E36F6F"]
+F = "Segoe UI"
+
+BUSCAS = [
+    ("BFS · largura", busca_em_largura),
+    ("DFS · profundidade", busca_em_profundidade),
+    ("A* · tempo + penalidade", busca_a_estrela),
+    ("A* · menor tempo", None),
+    ("A* · menos baldeações", None),
+]
+
+
+def executar(chave, grafo):
+    e, d = grafo["estado_inicial"], grafo["destino"]
+    if chave == 0:
+        return busca_em_largura(e, d, grafo)
+    if chave == 1:
+        return busca_em_profundidade(e, d, grafo)
+    if chave == 2:
+        return busca_a_estrela(e, d, grafo)
+    if chave == 3:
+        return busca_menor_tempo(e, d, grafo)
+    return busca_menor_numero_baldeacoes(e, d, grafo)
+
+
+def mistura(cor_a, cor_b, t):
+    """Mistura duas cores hex; t=0 fica com a, t=1 fica com b."""
+    a = [int(cor_a[i:i + 2], 16) for i in (1, 3, 5)]
+    b = [int(cor_b[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#%02x%02x%02x" % tuple(round(x + (y - x) * t) for x, y in zip(a, b))
+
+
+def cor_da_linha(nome, cache={}):
+    if nome in LINHAS:
+        return LINHAS[nome]
+    if nome not in cache:
+        cache[nome] = EXTRA[len(cache) % len(EXTRA)]
+    return cache[nome]
+
+
+def trechos(caminho, grafo):
+    """Lista (origem, destino, linha, minutos, houve_troca) do caminho."""
+    saida = []
+    for (a, la), (b, lb) in zip(caminho, caminho[1:]):
+        minutos = next(
+            (t for dest, lin, t in grafo["conexoes"][a] if dest == b and lin == lb),
+            None,
+        )
+        saida.append((a, b, lb, minutos, la is not None and la != lb))
+    return saida
+
+
+class Painel(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Itinerário de transporte público · painel")
+        self.configure(bg=BG)
+        self.geometry("1360x880")
+        self.minsize(1100, 680)
+        self.instancias = carregar_instancias()
+        self.nome = tk.StringVar(value=next(iter(self.instancias)))
+        self.resultado = None
+        self.caminho_visivel = 0
+        self.job = None
+        self._montar()
+        self.limpar()
+        self.bind("<Escape>", lambda _e: self.attributes("-fullscreen", False))
+        self.bind("<F11>", lambda _e: self.attributes("-fullscreen", not self.attributes("-fullscreen")))
+
+    # ---------- layout ----------
+    def _montar(self):
+        topo = tk.Frame(self, bg=BG)
+        topo.pack(fill="x", padx=24, pady=(16, 6))
+        tk.Label(topo, text="Itinerário de transporte público", bg=BG, fg=TXT,
+                 font=(F, 24, "bold")).pack(side="left")
+        tk.Label(topo, text="F11 tela cheia", bg=BG, fg=MUTED, font=(F, 11)).pack(side="right")
+
+        sel = tk.Frame(self, bg=BG)
+        sel.pack(fill="x", padx=24, pady=(0, 8))
+        tk.Label(sel, text="Instância:", bg=BG, fg=MUTED, font=(F, 14)).pack(side="left", padx=(0, 10))
+        for nome in self.instancias:
+            tk.Radiobutton(
+                sel, text=nome.replace("_", " "), value=nome, variable=self.nome,
+                command=self.limpar, indicatoron=False, bg=CARD, fg=TXT,
+                selectcolor=TEAL, activebackground=LINE, activeforeground=TXT,
+                font=(F, 14, "bold"), padx=16, pady=6, bd=0, relief="flat",
+            ).pack(side="left", padx=4)
+
+        corpo = tk.Frame(self, bg=BG)
+        corpo.pack(fill="both", expand=True, padx=24, pady=(0, 12))
+        corpo.columnconfigure(0, weight=3)
+        corpo.columnconfigure(1, weight=2)
+        corpo.rowconfigure(0, weight=1)
+
+        esq = tk.Frame(corpo, bg=CARD)
+        esq.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        self.canvas = tk.Canvas(esq, bg=CARD, highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True, padx=8, pady=8)
+        self.canvas.bind("<Configure>", lambda _e: self.desenhar())
+
+        dir_ = tk.Frame(corpo, bg=BG)
+        dir_.grid(row=0, column=1, sticky="nsew")
+
+        botoes = tk.Frame(dir_, bg=BG)
+        botoes.pack(fill="x")
+        for i, (rotulo, _f) in enumerate(BUSCAS):
+            b = tk.Button(
+                botoes, text=rotulo, command=lambda i=i: self.rodar(i),
+                bg=TEAL if i < 3 else AMBER, fg=BG, activebackground=TXT,
+                font=(F, 13, "bold"), bd=0, padx=10, pady=8, cursor="hand2",
+            )
+            b.grid(row=i // 2, column=i % 2, sticky="ew", padx=4, pady=4)
+        tk.Button(
+            botoes, text="Rodar as 3 e comparar", command=self.comparar,
+            bg=TXT, fg=BG, activebackground=TEAL, font=(F, 13, "bold"),
+            bd=0, padx=10, pady=8, cursor="hand2",
+        ).grid(row=2, column=1, sticky="ew", padx=4, pady=4)
+        botoes.columnconfigure(0, weight=1)
+        botoes.columnconfigure(1, weight=1)
+
+        self.card = tk.Frame(dir_, bg=CARD)
+        self.card.pack(fill="x", pady=(8, 8))
+        self.lbl_titulo = tk.Label(self.card, text="", bg=CARD, fg=TEAL, font=(F, 14, "bold"), anchor="w")
+        self.lbl_titulo.pack(fill="x", padx=16, pady=(12, 0))
+        self.lbl_caminho = tk.Label(self.card, text="", bg=CARD, fg=TXT, font=(F, 20, "bold"),
+                                    anchor="w", justify="left", wraplength=480)
+        self.lbl_caminho.pack(fill="x", padx=16, pady=(2, 8))
+        self.grade = tk.Frame(self.card, bg=CARD)
+        self.grade.pack(fill="x", padx=16, pady=(0, 6))
+        self.metricas = {}
+        itens = [("Custo do critério", "custo"), ("Tempo de viagem", "viagem"),
+                 ("Baldeações", "trocas"), ("Passos", "passos"),
+                 ("Nós gerados", "gerados"), ("Nós expandidos", "expandidos")]
+        for i, (rot, chave) in enumerate(itens):
+            cel = tk.Frame(self.grade, bg=CARD)
+            cel.grid(row=i // 3, column=i % 3, sticky="w", padx=(0, 22), pady=4)
+            tk.Label(cel, text=rot, bg=CARD, fg=MUTED, font=(F, 11)).pack(anchor="w")
+            v = tk.Label(cel, text="—", bg=CARD, fg=TXT, font=(F, 22, "bold"))
+            v.pack(anchor="w")
+            self.metricas[chave] = v
+        self.lbl_relogio = tk.Label(self.card, text="", bg=CARD, fg=MUTED, font=(F, 11), anchor="w")
+        self.lbl_relogio.pack(fill="x", padx=16, pady=(0, 6))
+        self.lbl_explica = tk.Label(self.card, text="", bg=CARD, fg=AMBER, font=(F, 13),
+                                    anchor="w", justify="left", wraplength=480)
+        self.lbl_explica.pack(fill="x", padx=16, pady=(0, 12))
+
+        self.tabela = tk.Frame(dir_, bg=CARD)
+        self.tabela.pack(fill="both", expand=True)
+
+    # ---------- dados ----------
+    @property
+    def grafo(self):
+        return self.instancias[self.nome.get()]
+
+    def limpar(self):
+        if self.job:
+            self.after_cancel(self.job)
+            self.job = None
+        self.resultado = None
+        self.caminho_visivel = 0
+        g = self.grafo
+        self.lbl_titulo.config(text=f"{self.nome.get().replace('_', ' ')} · de {g['estado_inicial'][0]} até {g['destino']}")
+        self.lbl_caminho.config(text="Escolha uma busca ao lado")
+        for v in self.metricas.values():
+            v.config(text="—")
+        self.lbl_relogio.config(text="")
+        self.lbl_explica.config(text="")
+        for w in self.tabela.winfo_children():
+            w.destroy()
+        self.desenhar()
+
+    def rodar(self, chave):
+        if self.job:
+            self.after_cancel(self.job)
+            self.job = None
+        g = self.grafo
+        r = executar(chave, g)
+        self.resultado = r
+        self.caminho_visivel = 0
+        self.mostrar(BUSCAS[chave][0], r)
+        if r["caminho"]:
+            self.animar()
+        else:
+            self.desenhar()
+
+    def mostrar(self, rotulo, r):
+        self.lbl_titulo.config(text=f"{rotulo} · {self.nome.get().replace('_', ' ')}")
+        if r["caminho"] is None:
+            self.lbl_caminho.config(text="Sem solução")
+            self.lbl_explica.config(
+                text="A fronteira esvaziou: não existe ônibus que leve ao destino.")
+            for k in ("custo", "viagem", "trocas", "passos"):
+                self.metricas[k].config(text="—")
+        else:
+            nomes = " → ".join(e for e, _l in r["caminho"])
+            self.lbl_caminho.config(text=nomes)
+            self.metricas["custo"].config(text=str(r["custo_solucao"]))
+            self.metricas["viagem"].config(text=f"{r['tempo_viagem']} min")
+            self.metricas["trocas"].config(text=str(r["baldeacoes"]))
+            self.metricas["passos"].config(text=str(r["passos"]))
+            partes = []
+            for a, b, lin, mins, troca in trechos(r["caminho"], self.grafo):
+                partes.append(f"{a}→{b} pela {lin} ({mins} min{', com troca' if troca else ''})")
+            self.lbl_explica.config(text="\n".join(partes))
+        self.metricas["gerados"].config(text=str(r["nos_gerados"]))
+        self.metricas["expandidos"].config(text=str(r["nos_expandidos"]))
+        self.lbl_relogio.config(
+            text=f"Tempo de execução desta rodada: {r['tempo_execucao'] * 1e6:.1f} µs (varia a cada execução)")
+
+    def comparar(self):
+        g = self.grafo
+        linhas = []
+        for rot, i in (("BFS", 0), ("DFS", 1), ("A*", 2)):
+            r = executar(i, g)
+            linhas.append((rot, r))
+        for w in self.tabela.winfo_children():
+            w.destroy()
+        cab = ["Busca", "Custo", "Viagem", "Trocas", "Gerados", "Expand."]
+        for c, t in enumerate(cab):
+            tk.Label(self.tabela, text=t, bg=CARD, fg=MUTED, font=(F, 12, "bold")).grid(
+                row=0, column=c, padx=10, pady=(10, 4), sticky="w")
+        for r_i, (rot, r) in enumerate(linhas, start=1):
+            vals = [rot,
+                    "—" if r["caminho"] is None else r["custo_solucao"],
+                    "—" if r["caminho"] is None else r["tempo_viagem"],
+                    "—" if r["caminho"] is None else r["baldeacoes"],
+                    r["nos_gerados"], r["nos_expandidos"]]
+            for c, v in enumerate(vals):
+                tk.Label(self.tabela, text=str(v), bg=CARD, fg=TXT if c else TEAL,
+                         font=(F, 15, "bold")).grid(row=r_i, column=c, padx=10, pady=3, sticky="w")
+        rotas = "\n".join(
+            f"{rot}: " + (" → ".join(e for e, _ in r["caminho"]) if r["caminho"] else "sem solução")
+            for rot, r in linhas)
+        tk.Label(self.tabela, text=rotas, bg=CARD, fg=MUTED, font=(F, 12), justify="left",
+                 anchor="w").grid(row=len(linhas) + 1, column=0, columnspan=6, padx=10, pady=(6, 10), sticky="w")
+        # destaca a rota do A*
+        self.resultado = linhas[2][1]
+        self.caminho_visivel = len(self.resultado["caminho"] or [])
+        self.mostrar("A* · tempo + penalidade", self.resultado)
+        self.desenhar()
+
+    # ---------- desenho ----------
+    def animar(self):
+        n = len(self.resultado["caminho"])
+        if self.caminho_visivel < n:
+            self.caminho_visivel += 1
+            self.desenhar()
+            self.job = self.after(550, self.animar)
+        else:
+            self.job = None
+
+    def posicoes(self, w, h):
+        g = self.grafo
+        coords = g["coordenadas"]
+        xs = [c[0] for c in coords.values()]
+        ys = [c[1] for c in coords.values()]
+        minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+        pad = 90
+        sx = (w - 2 * pad) / max(maxx - minx, 1)
+        sy = (h - 2 * pad) / max(maxy - miny, 1)
+        s = min(sx, sy) if (maxx - minx) and (maxy - miny) else max(sx, sy)
+        # centraliza
+        ox = (w - (maxx - minx) * s) / 2
+        oy = (h - (maxy - miny) * s) / 2
+        return {k: (ox + (x - minx) * s, h - (oy + (y - miny) * s)) for k, (x, y) in coords.items()}
+
+    def desenhar(self):
+        c = self.canvas
+        c.delete("all")
+        w, h = c.winfo_width(), c.winfo_height()
+        if w < 50 or h < 50:
+            return
+        g = self.grafo
+        pos = self.posicoes(w, h)
+
+        # arestas (uma por par e linha)
+        vistos = {}
+        for a, lst in g["conexoes"].items():
+            for b, lin, mins in lst:
+                chave = (frozenset((a, b)), lin)
+                if chave in vistos:
+                    continue
+                vistos[chave] = (a, b, lin, mins)
+        por_par = {}
+        for (par, lin), v in vistos.items():
+            por_par.setdefault(par, []).append(v)
+
+        usados = set()
+        if self.resultado and self.resultado["caminho"]:
+            cam = self.resultado["caminho"][: self.caminho_visivel]
+            for (a, la), (b, lb) in zip(cam, cam[1:]):
+                usados.add((frozenset((a, b)), lb))
+
+        for par, arestas in por_par.items():
+            for k, (a, b, lin, mins) in enumerate(arestas):
+                x1, y1 = pos[a]
+                x2, y2 = pos[b]
+                dx, dy = x2 - x1, y2 - y1
+                norma = max((dx * dx + dy * dy) ** 0.5, 1)
+                off = (k - (len(arestas) - 1) / 2) * 26
+                nx, ny = -dy / norma * off, dx / norma * off
+                x1o, y1o, x2o, y2o = x1 + nx, y1 + ny, x2 + nx, y2 + ny
+                ativo = (par, lin) in usados
+                cor = cor_da_linha(lin)
+                if usados and not ativo:
+                    cor = mistura(cor, CARD, 0.7)
+                c.create_line(x1o, y1o, x2o, y2o, fill=cor, width=12 if ativo else 4,
+                              capstyle="round")
+                mx, my = (x1o + x2o) / 2 + nx * 0.6, (y1o + y2o) / 2 + ny * 0.6 - 4
+                c.create_rectangle(mx - 58, my - 14, mx + 58, my + 14, fill=BG, outline=cor, width=2)
+                c.create_text(mx, my, text=f"L{lin[-1]} · {mins} min" if lin.startswith("Linha") else f"{lin} · {mins} min",
+                              fill=TXT, font=(F, 12, "bold"))
+
+        # nos
+        ini = g["estado_inicial"][0]
+        dest = g["destino"]
+        no_caminho = set()
+        if self.resultado and self.resultado["caminho"]:
+            no_caminho = {e for e, _ in self.resultado["caminho"][: self.caminho_visivel]}
+        for nome, (x, y) in pos.items():
+            r = 34
+            ativo = nome in no_caminho
+            fill = TEAL if ativo else "#0B1522"
+            c.create_oval(x - r, y - r, x + r, y + r, fill=fill, outline=TXT if ativo else LINE, width=3)
+            c.create_text(x, y, text=nome, fill=BG if ativo else TXT, font=(F, 26, "bold"))
+            if nome == ini:
+                c.create_text(x, y + r + 16, text="partida", fill=AMBER, font=(F, 12, "bold"))
+            if nome == dest:
+                c.create_text(x, y + r + 16, text="destino", fill=AMBER, font=(F, 12, "bold"))
+
+        # legenda
+        lx, ly = 18, 18
+        nomes = sorted({lin for _a, _b, lin, _m in vistos.values()})
+        for lin in nomes:
+            c.create_line(lx, ly, lx + 36, ly, fill=cor_da_linha(lin), width=6, capstyle="round")
+            c.create_text(lx + 46, ly, text=lin, fill=TXT, font=(F, 13), anchor="w")
+            ly += 24
+
+
+if __name__ == "__main__":
+    Painel().mainloop()
